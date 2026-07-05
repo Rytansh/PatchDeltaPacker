@@ -1,6 +1,7 @@
 use std::fs;
 use xxhash_rust::xxh64::xxh64;
 use std::io;
+use std::path::{Path};
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -8,9 +9,9 @@ pub struct Chunk {
     pub hash : u64
 }
 
-pub fn chunk_file(filepath : &str, chunk_size_in_bytes : usize) -> Result<Vec<Chunk>, io::Error> //converts a filepath into chunks of bytes
+pub fn chunk_file(file_path : &Path, chunk_size_in_bytes : usize) -> Result<Vec<Chunk>, io::Error> //converts a filepath into chunks of bytes
 {
-    let file_contents : Vec<u8> = fs::read(filepath)?; //converts the file into a stream of bytes (Vec<u8>)
+    let file_contents : Vec<u8> = fs::read(file_path)?; //converts the file into a stream of bytes (Vec<u8>)
 
     let mut chunked_file : Vec<Chunk> = Vec::new();
 
