@@ -1,7 +1,6 @@
 use std::fs;
-use std::path::{Path,PathBuf};
 use std::io;
-
+use std::path::{Path,PathBuf};
 
 pub fn scan_directory(root_directory_path: &Path) -> Result<Vec<PathBuf>, io::Error>
 {
