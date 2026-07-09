@@ -1,11 +1,4 @@
-use crate::chunker::chunk_builder::Chunk;
-
-#[derive(Debug)]
-#[derive(serde::Serialize)]
-#[derive(serde::Deserialize)]
-pub struct ChunkMetadata {
-    pub hash : u64
-}
+use crate::chunker::chunk_structs::{Chunk, ChunkMetadata};
 
 pub fn extract_chunk_data(chunked_file : Vec<Chunk>) -> Vec<ChunkMetadata> //converts a stream of chunks into streams of chunk data
 {

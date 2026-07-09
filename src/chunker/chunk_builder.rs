@@ -2,18 +2,10 @@ use std::fs;
 use std::io;
 use std::path::{Path};
 
+use crate::chunker::chunk_structs::{Chunk, ChunkedFile};
+
 use xxhash_rust::xxh64::xxh64;
 
-#[derive(Debug)]
-pub struct Chunk {
-    pub contents : Vec<u8>,
-    pub hash : u64
-}
-
-pub struct ChunkedFile {
-    pub chunks : Vec<Chunk>,
-    pub hash: u64
-}
 
 pub fn chunk_file(file_path : &Path, chunk_size_in_bytes : usize) -> Result<ChunkedFile, io::Error> //converts a filepath into a chunked file, containing chunks and a file hash
 {

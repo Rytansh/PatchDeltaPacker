@@ -3,10 +3,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::constants::MANIFEST_RELATIVE_PATH;
-use crate::manifests::manifest_gen::Manifest;
+use crate::manifests::manifest_structs::Manifest;
 
 use serde_json;
-use serde;
 
 pub fn get_manifest(root_directory_path: &Path) -> Result<Manifest, io::Error>
 {

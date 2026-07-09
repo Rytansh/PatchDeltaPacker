@@ -3,35 +3,14 @@ use std::io;
 
 use std::path::{Path, PathBuf};
 use crate::chunker::chunk_builder;
-use crate::chunker::chunk_extractor::{ChunkMetadata, extract_chunk_data};
+use crate::chunker::chunk_extractor::extract_chunk_data;
 use crate::tooling::directory_scanner;
 use crate::config::config_reader;
 use crate::constants::{MANIFEST_RELATIVE_PATH, MANIFEST_VERSION, CHUNK_SIZE};
+use crate::manifests::manifest_structs::{Manifest, ManifestFile};
 
-use xxhash_rust::xxh64::xxh64;
 use serde_json;
-use serde;
 
-
-#[derive(Debug)]
-#[derive(serde::Serialize)]
-#[derive(serde::Deserialize)]
-pub struct Manifest {
-    manifest_ver : String,
-    game_ver: String,
-    chunk_size: usize,
-    files : Vec<ManifestFile>
-}
-
-#[derive(Debug)]
-#[derive(serde::Serialize)]
-#[derive(serde::Deserialize)]
-pub struct ManifestFile {
-    file_hash: u64,
-    file_path: PathBuf,
-    file_size: usize,
-    chunk_data: Vec<ChunkMetadata>
-}
 
 
 pub fn write_manifest(root_directory_path: &Path) -> Result<Manifest, io::Error> //updates manifest if it exists, otherwise creates new manifest, returns manifest upon success
