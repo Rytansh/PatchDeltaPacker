@@ -1,27 +1,8 @@
 use std::io;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use crate::manifests::manifest_structs::{Manifest, ManifestFile};
-
-
-#[derive(Debug)]
-pub struct PatchPlan {
-    old_ver: String,
-    new_ver: String,
-    added_files: Vec<ManifestFile>,
-    deleted_files: Vec<ManifestFile>,
-    modified_files: Vec<ModifiedFile>,
-    chunk_size: usize
-}
-
-#[derive(Debug)]
-pub struct ModifiedFile {
-    file_path: PathBuf,
-    modified_chunk_indices: Vec<usize>,
-    added_chunks_indices: Vec<usize>,
-    deleted_chunks_indices: Vec<usize>
-}
+use crate::patcher::patch_structs::{PatchPlan, Modification};
 
 pub fn create_patch_plan(old_manifest : &Manifest, new_manifest: &Manifest) -> Result<PatchPlan, io::Error>
 {
@@ -46,7 +27,7 @@ pub fn create_patch_plan(old_manifest : &Manifest, new_manifest: &Manifest) -> R
         match old_file_lookup.get(&file.file_path) {
             Some(existing_file) => {
                 if file.file_hash == existing_file.file_hash {continue;}
-                let modified_file = compare_modifications(&file, &existing_file); 
+                let modified_file = compare_modifications(&existing_file, &file); 
                 new_modified_files.push(modified_file);
             }
             None => {
@@ -76,7 +57,7 @@ pub fn create_patch_plan(old_manifest : &Manifest, new_manifest: &Manifest) -> R
     Ok(patch_plan)
 }
 
-fn compare_modifications(old_file: &ManifestFile, new_file: &ManifestFile) -> ModifiedFile
+fn compare_modifications(old_file: &ManifestFile, new_file: &ManifestFile) -> Modification
 {
     let mut index = 0;
     let mut modified_indices = Vec::with_capacity(new_file.chunk_data.len());
@@ -106,9 +87,9 @@ fn compare_modifications(old_file: &ManifestFile, new_file: &ManifestFile) -> Mo
         }
     }
 
-    let modified_results = ModifiedFile {
+    let modified_results = Modification {
         file_path: new_file.file_path.clone(),
-        modified_chunk_indices: modified_indices,
+        modified_chunks_indices: modified_indices,
         added_chunks_indices: added_indices,
         deleted_chunks_indices: deleted_indices
     };
