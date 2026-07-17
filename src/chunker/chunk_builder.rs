@@ -1,55 +1,54 @@
 use std::fs;
 use std::io;
-use std::path::{Path};
+use std::path::Path;
 
 use crate::chunker::chunk_structs::{Chunk, ChunkedFile};
 
 use xxhash_rust::xxh64::xxh64;
 
-
-pub fn chunk_file(file_path : &Path, chunk_size_in_bytes : usize) -> Result<ChunkedFile, io::Error> //converts a filepath into a chunked file, containing chunks and a file hash
+pub fn chunk_file(file_path: &Path, chunk_size_in_bytes: usize,) -> Result<ChunkedFile, io::Error> 
 {
-    let file_contents : Vec<u8> = fs::read(file_path)?; //converts the file into a stream of bytes (Vec<u8>)
+    let file_contents = fs::read(file_path)?;
+    Ok(chunk_contents(file_contents, chunk_size_in_bytes))
+}
 
-    let file_hash = hash_contents(&file_contents, &1);
+pub fn chunk_bytes(file_contents: Vec<u8>, chunk_size_in_bytes: usize) -> ChunkedFile 
+{
+    chunk_contents(file_contents, chunk_size_in_bytes)
+}
 
-    let mut file_chunks : Vec<Chunk> = Vec::new();
+fn chunk_contents(file_contents: Vec<u8>, chunk_size_in_bytes: usize) -> ChunkedFile {
+
+    let file_hash = hash_contents(&file_contents, 1);
+
+    let mut file_chunks = Vec::new();
     let mut contents = Vec::with_capacity(chunk_size_in_bytes);
 
-    for byte in &file_contents
-    {
-        if contents.len() == contents.capacity()
-        {
-            let chunk = create_chunk(contents);
-            file_chunks.push(chunk);
+    for byte in &file_contents {
+        if contents.len() == contents.capacity() {
+            file_chunks.push(create_chunk(contents));
             contents = Vec::with_capacity(chunk_size_in_bytes);
         }
+
         contents.push(*byte);
     }
-    let chunk = create_chunk(contents);
-    file_chunks.push(chunk);
 
-    let chunked_file = ChunkedFile {
+    file_chunks.push(create_chunk(contents));
+
+    ChunkedFile {
         chunks: file_chunks,
-        hash: file_hash
-    };
-    
-    return Ok(chunked_file)
-}
-
-
-fn create_chunk(chunk_contents : Vec<u8>) -> Chunk
-{
-    let hash = hash_contents(&chunk_contents, &1);
-    return Chunk
-    {
-        contents: chunk_contents,
-        hash: hash
+        hash: file_hash,
     }
 }
 
+fn create_chunk(chunk_contents: Vec<u8> ) -> Chunk {
+    let hash = hash_contents(&chunk_contents, 1);
+    Chunk {
+        contents: chunk_contents,
+        hash,
+    }
+}
 
-fn hash_contents(contents : &Vec<u8>, hash_seed : &u64) -> u64
-{
-    return xxh64(contents, *hash_seed)
+fn hash_contents(contents: &Vec<u8>, hash_seed: u64) -> u64 {
+    xxh64(contents, hash_seed)
 }
