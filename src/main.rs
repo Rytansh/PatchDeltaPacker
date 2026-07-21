@@ -1,16 +1,12 @@
-use crate::concurrency::worker_pool::WorkerPool;
 use std::path::Path;
 use std::time::Instant;
-
-mod chunker;
-mod concurrency;
-mod config;
+mod build;
+mod client;
 mod constants;
-mod manifests;
-mod patcher;
-mod tooling;
 
-use crate::patcher::patch_ser;
+use crate::build::concurrency::worker_pool::WorkerPool;
+use crate::build::patcher::patch_package_gen;
+use crate::client::installer::patch_installer;
 
 #[tokio::main]
 async fn main() {
@@ -33,7 +29,7 @@ async fn main() {
 
     let start = Instant::now();
 
-    let patch_package = patch_ser::generate_patch(
+    let patch_package = patch_package_gen::build_patch(
         Path::new(
             r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.3",
         ),
@@ -48,4 +44,20 @@ async fn main() {
     let elapsed = start.elapsed();
 
     println!("Patch package took {:.3?}", elapsed);
+
+    let start2 = Instant::now();
+
+    patch_installer::install_patch(
+        patch_package,
+        &worker_pool,
+        Path::new(
+            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Installed Game\V1.1.0",
+        ),
+    )
+    .await
+    .unwrap();
+
+    let elapsed2 = start2.elapsed();
+
+    println!("Patch installation took {:.3?}", elapsed2);
 }

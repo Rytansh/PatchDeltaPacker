@@ -1,4 +1,4 @@
-use crate::concurrency::job::{Job, JobHandle};
+use crate::build::concurrency::job::{Job, JobHandle};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use tokio::sync::oneshot;

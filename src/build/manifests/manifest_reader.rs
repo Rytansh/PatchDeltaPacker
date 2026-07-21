@@ -2,8 +2,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::build::manifests::manifest_structs::Manifest;
 use crate::constants::MANIFEST_RELATIVE_PATH;
-use crate::manifests::manifest_structs::Manifest;
 
 use serde_json;
 

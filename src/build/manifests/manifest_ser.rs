@@ -1,7 +1,7 @@
-use crate::concurrency::worker_pool::WorkerPool;
+use crate::build::concurrency::worker_pool::WorkerPool;
+use crate::build::manifests::manifest_gen;
+use crate::build::manifests::manifest_structs::Manifest;
 use crate::constants::MANIFEST_RELATIVE_PATH;
-use crate::manifests::manifest_gen;
-use crate::manifests::manifest_structs::Manifest;
 use serde_json;
 use std::fs;
 use std::io;

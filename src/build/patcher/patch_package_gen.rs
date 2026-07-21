@@ -1,8 +1,8 @@
-use crate::concurrency::worker_pool::WorkerPool;
-use crate::manifests::manifest_reader;
-use crate::manifests::manifest_ser::write_manifest;
-use crate::patcher::patch_plan_gen::create_patch_plan;
-use crate::patcher::patch_structs::{
+use crate::build::concurrency::worker_pool::WorkerPool;
+use crate::build::manifests::manifest_reader;
+use crate::build::manifests::manifest_ser::write_manifest;
+use crate::build::patcher::patch_plan_gen::create_patch_plan;
+use crate::build::patcher::patch_structs::{
     AddedFile, DeletedFile, Modification, ModifiedChunk, ModifiedFile, PatchPackage, PatchPlan,
 };
 use std::fs;
@@ -24,13 +24,14 @@ pub async fn build_patch(
         Err(error) => write_manifest(new_patch_root, worker_pool).await?,
     };
     let plan = create_patch_plan(old_manifest, new_manifest)?;
-    let package = create_patch_package(&plan, new_patch_root, worker_pool).await?;
+    let package = create_patch_package(&plan, old_patch_root, new_patch_root, worker_pool).await?;
 
     Ok(package)
 }
 
 pub async fn create_patch_package(
     plan: &PatchPlan,
+    old_patch_root: &Path,
     new_patch_root: &Path,
     worker_pool: &WorkerPool,
 ) -> Result<PatchPackage, io::Error> {
@@ -55,11 +56,12 @@ pub async fn create_patch_package(
 
     //MODIFIED FILES
     for modification in &plan.modified_files {
+        let old = old_patch_root.to_path_buf();
         let patch_root = new_patch_root.to_path_buf();
         let chunk_size = plan.chunk_size;
         let modification = modification.clone();
-        let handle =
-            worker_pool.execute(move || build_modified_file(modification, patch_root, chunk_size));
+        let handle = worker_pool
+            .execute(move || build_modified_file(modification, old, patch_root, chunk_size));
         modify_handles.push(handle);
     }
 
@@ -103,6 +105,7 @@ const fn build_deleted_file(file_path: PathBuf) -> DeletedFile {
 }
 fn build_modified_file(
     modification: Modification,
+    old_patch_root: PathBuf,
     new_patch_root: PathBuf,
     chunk_size: usize,
 ) -> Result<ModifiedFile, io::Error> {
@@ -143,6 +146,7 @@ fn build_modified_file(
 
     Ok(ModifiedFile {
         file_path: modification.file_path.clone(),
+        target_file_size: bytes.len(),
         added_chunks: additions,
         deleted_chunks: modification.deleted_chunks_indices.clone(),
         modified_chunks: modifications,

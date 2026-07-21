@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::io;
 
-use crate::manifests::manifest_structs::{Manifest, ManifestFile};
-use crate::patcher::patch_structs::{Modification, PatchPlan};
+use crate::build::manifests::manifest_structs::{Manifest, ManifestFile};
+use crate::build::patcher::patch_structs::{Modification, PatchPlan};
 
 pub fn create_patch_plan(
     old_manifest: Manifest,

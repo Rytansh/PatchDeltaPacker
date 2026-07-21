@@ -1,11 +1,11 @@
 use std::path::Path;
 use std::{fs, io};
 
+use crate::build::patcher::patch_package_gen::build_patch;
+use crate::build::patcher::patch_structs::PatchPackage;
 use crate::constants::PATCH_PACKAGES_PATH;
-use crate::patcher::patch_package_gen::build_patch;
-use crate::patcher::patch_structs::PatchPackage;
 
-use crate::concurrency::worker_pool::WorkerPool;
+use crate::build::concurrency::worker_pool::WorkerPool;
 use bincode::config;
 
 pub async fn generate_patch(

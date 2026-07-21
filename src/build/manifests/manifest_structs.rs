@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::chunker::chunk_structs::ChunkMetadata;
+use crate::build::chunker::chunk_structs::ChunkMetadata;
 
 use serde;
 
@@ -24,7 +24,7 @@ pub struct ManifestJob {
     pub file_path: PathBuf,
     pub file_contents: Vec<u8>,
     pub job_index: usize,
-    pub file_size: usize
+    pub file_size: usize,
 }
 pub struct ManifestJobResult {
     pub file: ManifestFile,

@@ -1,13 +1,13 @@
 use std::fs;
 use std::io;
 
-use crate::chunker::chunk_builder;
-use crate::chunker::chunk_extractor::extract_chunk_data;
-use crate::concurrency::worker_pool::WorkerPool;
-use crate::config::config_reader;
+use crate::build::chunker::chunk_builder;
+use crate::build::chunker::chunk_extractor::extract_chunk_data;
+use crate::build::concurrency::worker_pool::WorkerPool;
+use crate::build::config::config_reader;
+use crate::build::manifests::manifest_structs::{Manifest, ManifestFile};
+use crate::build::tooling::directory_scanner;
 use crate::constants::{CHUNK_SIZE, MANIFEST_RELATIVE_PATH, MANIFEST_VERSION};
-use crate::manifests::manifest_structs::{Manifest, ManifestFile};
-use crate::tooling::directory_scanner;
 use std::path::{Path, PathBuf};
 
 pub async fn build_manifest(
@@ -36,7 +36,7 @@ async fn collect_manifest_files(
     let root_directory = root_directory_path.to_path_buf();
     let mut handles = Vec::new();
 
-    for (index, filepath) in all_files.into_iter().enumerate() {
+    for filepath in all_files {
         if filepath.as_path() == root_directory.join(Path::new(MANIFEST_RELATIVE_PATH)) {
             continue;
         }

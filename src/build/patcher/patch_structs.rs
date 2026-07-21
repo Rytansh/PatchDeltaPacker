@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::manifests::manifest_structs::ManifestFile;
+use crate::build::manifests::manifest_structs::ManifestFile;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct PatchPlan {
@@ -40,6 +40,7 @@ pub struct AddedFile {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ModifiedFile {
     pub file_path: PathBuf,
+    pub target_file_size: usize,
     pub modified_chunks: Vec<ModifiedChunk>,
     pub added_chunks: Vec<ModifiedChunk>,
     pub deleted_chunks: Vec<usize>,
@@ -50,7 +51,7 @@ pub struct DeletedFile {
     pub file_path: PathBuf,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ModifiedChunk {
     pub index: usize,
     pub bytes: Vec<u8>,
