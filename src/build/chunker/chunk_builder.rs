@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::build::chunker::chunk_structs::{Chunk, ChunkedFile};
 
-use xxhash_rust::xxh64::xxh64;
+use crate::build::tooling::hasher;
 
 pub fn chunk_file(file_path: &Path, chunk_size_in_bytes: usize) -> Result<ChunkedFile, io::Error> {
     let file_contents = fs::read(file_path)?;
@@ -16,7 +16,7 @@ pub fn chunk_bytes(file_contents: Vec<u8>, chunk_size_in_bytes: usize) -> Chunke
 }
 
 fn chunk_contents(file_contents: Vec<u8>, chunk_size_in_bytes: usize) -> ChunkedFile {
-    let file_hash = hash_contents(&file_contents, 1);
+    let file_hash = hasher::hash_xxh64(&file_contents, 1);
 
     let mut file_chunks = Vec::new();
     let mut contents = Vec::with_capacity(chunk_size_in_bytes);
@@ -39,13 +39,9 @@ fn chunk_contents(file_contents: Vec<u8>, chunk_size_in_bytes: usize) -> Chunked
 }
 
 fn create_chunk(chunk_contents: Vec<u8>) -> Chunk {
-    let hash = hash_contents(&chunk_contents, 1);
+    let hash = hasher::hash_xxh64(&chunk_contents, 1);
     Chunk {
         contents: chunk_contents,
         hash,
     }
-}
-
-fn hash_contents(contents: &Vec<u8>, hash_seed: u64) -> u64 {
-    xxh64(contents, hash_seed)
 }

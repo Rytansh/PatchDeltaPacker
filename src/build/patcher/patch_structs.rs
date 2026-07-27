@@ -56,3 +56,18 @@ pub struct ModifiedChunk {
     pub index: usize,
     pub bytes: Vec<u8>,
 }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PatchHistory {
+    pub latest_version: String,
+    pub patches: Vec<PatchEntry>,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct PatchEntry {
+    pub from: String,
+    pub to: String,
+    pub file: String,
+    pub size: u64,
+    pub checksum: [u8; 32],
+}

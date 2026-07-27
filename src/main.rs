@@ -5,8 +5,7 @@ mod client;
 mod constants;
 
 use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::patcher::patch_package_gen;
-use crate::client::installer::patch_installer;
+use crate::build::patcher::patch_ser;
 
 #[tokio::main]
 async fn main() {
@@ -29,12 +28,12 @@ async fn main() {
 
     let start = Instant::now();
 
-    let patch_package = patch_package_gen::build_patch(
+    let patch_package = patch_ser::generate_patch(
         Path::new(
-            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.3",
+            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.0",
         ),
         Path::new(
-            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.4",
+            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.1",
         ),
         &worker_pool,
     )
@@ -45,19 +44,19 @@ async fn main() {
 
     println!("Patch package took {:.3?}", elapsed);
 
-    let start2 = Instant::now();
-
-    patch_installer::install_patch(
-        patch_package,
-        &worker_pool,
-        Path::new(
-            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Installed Game\V1.1.0",
-        ),
-    )
-    .await
-    .unwrap();
-
-    let elapsed2 = start2.elapsed();
-
-    println!("Patch installation took {:.3?}", elapsed2);
+    // let start2 = Instant::now();
+    //
+    // patch_installer::install_patch(
+    //     patch_package,
+    //     &worker_pool,
+    //     Path::new(
+    //         r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Installed Game\V1.1.0",
+    //     ),
+    // )
+    // .await
+    // .unwrap();
+    //
+    // let elapsed2 = start2.elapsed();
+    //
+    // println!("Patch installation took {:.3?}", elapsed2);
 }
