@@ -5,6 +5,10 @@ pub fn hash_sha256(contents: &[u8]) -> [u8; 32] {
     Sha256::digest(contents).into()
 }
 
+pub fn create_sha256() -> Sha256 {
+    Sha256::new()
+}
+
 pub fn hash_xxh64(contents: &[u8], hash_seed: u64) -> u64 {
     xxh64(contents, hash_seed)
 }

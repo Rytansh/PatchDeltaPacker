@@ -1,3 +1,5 @@
+use crate::build::patcher::patch_structs::PatchEntry;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Packet {
     Connection,
@@ -13,15 +15,15 @@ pub enum Packet {
     PatchRequest {
         from: String,
         to: String,
+        resume_offset: u64,
     },
     PatchResponse {
-        name: String,
-        size: u64,
+        file: String,
+        version: String,
+        remaining_size: u64,
         checksum: [u8; 32],
     },
-    PatchChunk {
-        bytes: Vec<u8>,
-    },
+    PatchDownload,
     PatchComplete,
 
     Error {
@@ -36,5 +38,16 @@ pub enum ErrorCode {
     InvalidVersion,
     ChecksumMismatch,
     PermissionDenied,
+    OffsetMismatch,
+    DownloadInfoNotFound,
     FatalError,
+}
+
+pub struct Session {
+    pub download: Option<PendingDownload>,
+}
+
+pub struct PendingDownload {
+    pub patch_entry: PatchEntry,
+    pub resume_offset: u64,
 }
