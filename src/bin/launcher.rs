@@ -1,3 +1,5 @@
+use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
 use patch_packer::build::concurrency::worker_pool::WorkerPool;
 use patch_packer::build::config::config_reader;
 use patch_packer::build::patcher::patch_ser;
@@ -5,76 +7,148 @@ use patch_packer::build::tooling::hasher;
 use patch_packer::client::connection::connection_structs::Packet;
 use patch_packer::client::connection::protocol::{receive_packet, send_packet};
 use patch_packer::client::installer::patch_installer;
+use patch_packer::constants::{CHUNK_SIZE, TEMPORARY_PATCH_PATH};
 use sha2::Digest;
 use std::io::{self, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+#[derive(Parser)]
+#[command(name = "launcher", about = "Downloads and installs game updates.")]
+struct Cli {
+    #[arg(long)]
+    game: PathBuf,
+
+    #[arg(long, default_value_t = 3)]
+    threads: usize,
+}
+
+struct DownloadInfo {
+    file_name: String,
+    remaining_size: u64,
+    checksum: [u8; 32],
+}
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    let worker_pool = WorkerPool::new(3);
-    let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
-    let game_path = Path::new(
-        r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Installed Game\V1.1.0",
-    );
-    let temp_path = game_path.join("patch.tmp");
-    let resume_offset = fs::metadata(&temp_path)
+    let cli = Cli::parse();
+    let worker_pool = WorkerPool::new(cli.threads);
+
+    run_launcher(cli.game, &worker_pool).await
+}
+
+async fn run_launcher(game_path: PathBuf, worker_pool: &WorkerPool) -> io::Result<()> {
+    //compile metadata here like resume offset etc
+    let temp_patch_path = game_path.join(TEMPORARY_PATCH_PATH);
+    if let Some(parent) = temp_patch_path.parent() {
+        fs::create_dir_all(parent).await?;
+    }
+    let resume_offset = fs::metadata(&temp_patch_path)
         .await
         .map_or(0, |metadata| metadata.len());
-    let current_game_version = config_reader::get_game_version(&game_path)?;
 
+    let mut stream = connect_to_server().await?;
+
+    let result: io::Result<()> = async {
+        let found = find_update(&mut stream, &game_path, resume_offset).await?;
+        if !found {
+            return Ok(());
+        }
+
+        let Some(download_info) = get_patch_from_server(&mut stream).await? else {
+            return Ok(());
+        };
+
+        download_patch(&mut stream, &temp_patch_path, resume_offset, &download_info).await?;
+
+        if !verify_patch(&temp_patch_path, &download_info).await? {
+            return Ok(());
+        }
+
+        install_patch(&temp_patch_path, &game_path, worker_pool).await?;
+
+        Ok(())
+    }
+    .await;
+
+    close_connection(&mut stream).await;
+
+    result
+}
+
+async fn connect_to_server() -> io::Result<TcpStream> {
+    let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
     send_packet(&mut stream, &Packet::Connection).await?;
 
     if matches!(receive_packet(&mut stream).await?, Packet::ConnectionAck) {
-        println!("Connected to patch server.");
+        println!("Successfully connected to patch server.");
     } else {
-        println!("Unexpected packet received. Closing connection.");
-        send_packet(&mut stream, &Packet::ConnectionComplete).await?;
-        return Ok(());
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "Connection was not established properly.",
+        ));
     }
 
+    Ok(stream)
+}
+
+async fn close_connection(stream: &mut TcpStream) {
+    if let Err(err) = send_packet(stream, &Packet::ConnectionComplete).await {
+        eprintln!("Failed to close connection: {err}");
+    }
+}
+
+async fn find_update(
+    stream: &mut TcpStream,
+    game_path: &Path,
+    resume_offset: u64,
+) -> io::Result<bool> {
+    let current_game_version = config_reader::get_game_version(game_path)?;
+
     send_packet(
-        &mut stream,
+        stream,
         &Packet::VersionRequest {
             current: current_game_version.clone(),
         },
     )
     .await?;
 
-    if let Packet::VersionResponse { latest } = receive_packet(&mut stream).await? {
+    if let Packet::VersionResponse { latest } = receive_packet(stream).await? {
         if latest == current_game_version {
             println!("Game version is already up to date.");
-            send_packet(&mut stream, &Packet::ConnectionComplete).await?;
-            return Ok(());
+            return Ok(false);
         }
-        println!("Requesting patch for version {latest}...");
         send_packet(
-            &mut stream,
+            stream,
             &Packet::PatchRequest {
                 from: current_game_version.clone(),
-                to: latest.clone(),
+                to: latest,
                 resume_offset,
             },
         )
         .await?;
     } else {
-        println!("Unexpected packet received. Closing connection.");
-        send_packet(&mut stream, &Packet::ConnectionComplete).await?;
-        return Ok(());
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "An unexpected error occurred: VERSION_RESPONSE_NOT_RECEIVED",
+        ));
     }
+    Ok(true)
+}
 
+async fn get_patch_from_server(stream: &mut TcpStream) -> Result<Option<DownloadInfo>, io::Error> {
     if let Packet::PatchResponse {
         file,
         version,
         remaining_size,
         checksum,
-    } = receive_packet(&mut stream).await?
+    } = receive_packet(stream).await?
     {
         println!(
-            "An update is available ({:.1} MB).",
+            "Version {version}: An update is available ({:.1} MB).",
             remaining_size as f64 / (1024.0 * 1024.0)
         );
 
@@ -87,88 +161,122 @@ async fn main() -> io::Result<()> {
 
             match input.trim().to_lowercase().as_str() {
                 "y" => {
-                    println!("Downloading {file}...");
-                    send_packet(&mut stream, &Packet::PatchDownload).await?;
-                    break;
+                    return Ok(Some(DownloadInfo {
+                        file_name: file,
+                        remaining_size,
+                        checksum,
+                    }));
                 }
-
                 "n" => {
                     println!("Cancelling update.");
-                    send_packet(&mut stream, &Packet::ConnectionComplete).await?;
-                    return Ok(());
+                    return Ok(None);
                 }
                 _ => {
-                    println!("An error occurred. Please try again.");
+                    println!("The input was invalid. Please try again.");
                 }
             }
         }
-
-        let mut temp_patch_file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(&temp_path)
-            .await?;
-
-        temp_patch_file.seek(SeekFrom::Start(resume_offset)).await?;
-
-        let mut remaining = remaining_size;
-        let mut buffer = vec![0u8; 64 * 1024];
-
-        while remaining > 0 {
-            let bytes_read = stream.read(&mut buffer).await?;
-
-            if bytes_read == 0 {
-                println!("Error while downloading patch. Closing connection.");
-                send_packet(&mut stream, &Packet::ConnectionComplete).await?;
-                return Ok(());
-            }
-
-            temp_patch_file.write_all(&buffer[..bytes_read]).await?;
-            remaining -= bytes_read as u64;
-        }
-
-        if matches!(receive_packet(&mut stream).await?, Packet::PatchComplete) {
-            println!("Download complete. Verifying...");
-
-            temp_patch_file.flush().await?;
-            drop(temp_patch_file);
-
-            let mut verification_file = tokio::fs::File::open(&temp_path).await?;
-            let mut hasher = hasher::create_sha256();
-            let mut buffer = vec![0u8; 64 * 1024];
-
-            loop {
-                let bytes_read = verification_file.read(&mut buffer).await?;
-
-                if bytes_read == 0 {
-                    break;
-                }
-
-                hasher.update(&buffer[..bytes_read]);
-            }
-
-            let temp_checksum: [u8; 32] = hasher.finalize().into();
-            verification_file.flush().await?;
-            drop(verification_file);
-            if checksum != temp_checksum {
-                println!("Updated patch files do not match - clearing progress.");
-                fs::remove_file(&temp_path).await?;
-                send_packet(&mut stream, &Packet::ConnectionComplete).await?;
-                return Ok(());
-            }
-        } else {
-            println!("An error occured while downloading the patch.");
-            send_packet(&mut stream, &Packet::ConnectionComplete).await?;
-            return Ok(());
-        }
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "An unexpected error occurred: PATCH_RESPONSE_NOT_RECEIVED",
+        ))
     }
-    send_packet(&mut stream, &Packet::ConnectionComplete).await?;
+}
 
+async fn download_patch(
+    stream: &mut TcpStream,
+    temp_patch_path: &Path,
+    resume_offset: u64,
+    info: &DownloadInfo,
+) -> io::Result<()> {
+    send_packet(stream, &Packet::PatchDownload).await?;
+    let mut temp_patch_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&temp_patch_path)
+        .await?;
+
+    temp_patch_file.seek(SeekFrom::Start(resume_offset)).await?;
+
+    let mut remaining = info.remaining_size;
+    let mut buffer = vec![0; CHUNK_SIZE];
+
+    let total_size = resume_offset + info.remaining_size;
+
+    println!("Downloading {}...", info.file_name);
+
+    let progress = ProgressBar::new(total_size);
+
+    progress.set_position(resume_offset);
+
+    progress.set_style(
+        ProgressStyle::with_template(
+            "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] \
+         {bytes}/{total_bytes} ({bytes_per_sec}, ETA {eta})",
+        )
+        .unwrap()
+        .progress_chars("#>-"),
+    );
+
+    while remaining > 0 {
+        let bytes_read = stream.read(&mut buffer).await?;
+        if bytes_read == 0 {
+            println!("EOF");
+            break;
+        }
+        temp_patch_file.write_all(&buffer[..bytes_read]).await?;
+        remaining -= bytes_read as u64;
+        progress.inc(bytes_read as u64);
+    }
+
+    if !matches!(receive_packet(stream).await?, Packet::PatchComplete) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Am error occurred when downloading the patch: PATCH_COMPLETE_NOT_RECEIVED",
+        ));
+    }
+    progress.finish_with_message("Download complete!");
+    temp_patch_file.flush().await?;
+    Ok(())
+}
+
+async fn verify_patch(temp_patch_path: &Path, info: &DownloadInfo) -> io::Result<bool> {
+    let mut verification_file = fs::File::open(temp_patch_path).await?;
+    let mut hasher = hasher::create_sha256();
+    let mut buffer = vec![0; CHUNK_SIZE];
+
+    println!("Verifying patch...");
+
+    loop {
+        let bytes_read = verification_file.read(&mut buffer).await?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    let temp_checksum: [u8; 32] = hasher.finalize().into();
+    if info.checksum != temp_checksum {
+        println!("Updated patch files do not match - clearing progress.");
+        fs::remove_file(&temp_patch_path).await?;
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+async fn install_patch(
+    temp_patch_path: &Path,
+    game_path: &Path,
+    worker_pool: &WorkerPool,
+) -> io::Result<()> {
     println!("Installing patch...");
-    let patch = patch_ser::retrieve_patch(&temp_path).await?;
+    let patch = patch_ser::retrieve_patch(temp_patch_path).await?;
     patch_installer::install_patch(patch, &worker_pool, game_path).await?;
-    fs::remove_file(temp_path).await?;
+    fs::remove_file(temp_patch_path).await?;
     println!("Patch installed!");
     Ok(())
 }

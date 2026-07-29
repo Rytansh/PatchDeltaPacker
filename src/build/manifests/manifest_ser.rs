@@ -7,7 +7,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-pub async fn write_manifest(
+pub async fn generate_manifest(
     root_directory_path: &Path,
     worker_pool: &WorkerPool,
 ) -> Result<Manifest, io::Error> //updates manifest if it exists, otherwise creates new manifest, returns manifest upon success

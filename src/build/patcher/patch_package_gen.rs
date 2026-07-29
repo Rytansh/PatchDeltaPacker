@@ -1,6 +1,6 @@
 use crate::build::concurrency::worker_pool::WorkerPool;
 use crate::build::manifests::manifest_reader;
-use crate::build::manifests::manifest_ser::write_manifest;
+use crate::build::manifests::manifest_ser;
 use crate::build::patcher::patch_plan_gen::create_patch_plan;
 use crate::build::patcher::patch_structs::{
     AddedFile, DeletedFile, Modification, ModifiedChunk, ModifiedFile, PatchPackage, PatchPlan,
@@ -16,12 +16,12 @@ pub async fn build_patch(
 ) -> Result<PatchPackage, io::Error> {
     let old_manifest = match manifest_reader::get_manifest(old_patch_root) {
         Ok(manifest) => manifest,
-        Err(error) => write_manifest(old_patch_root, worker_pool).await?,
+        Err(_) => manifest_ser::generate_manifest(old_patch_root, worker_pool).await?,
     };
 
     let new_manifest = match manifest_reader::get_manifest(new_patch_root) {
         Ok(manifest) => manifest,
-        Err(error) => write_manifest(new_patch_root, worker_pool).await?,
+        Err(_) => manifest_ser::generate_manifest(new_patch_root, worker_pool).await?,
     };
     let plan = create_patch_plan(old_manifest, new_manifest)?;
     let package = create_patch_package(&plan, old_patch_root, new_patch_root, worker_pool).await?;
@@ -61,7 +61,7 @@ pub async fn create_patch_package(
         let chunk_size = plan.chunk_size;
         let modification = modification.clone();
         let handle = worker_pool
-            .execute(move || build_modified_file(modification, old, patch_root, chunk_size));
+            .execute(move || build_modified_file(&modification, &patch_root, chunk_size));
         modify_handles.push(handle);
     }
 
@@ -104,9 +104,8 @@ const fn build_deleted_file(file_path: PathBuf) -> DeletedFile {
     DeletedFile { file_path }
 }
 fn build_modified_file(
-    modification: Modification,
-    old_patch_root: PathBuf,
-    new_patch_root: PathBuf,
+    modification: &Modification,
+    new_patch_root: &Path,
     chunk_size: usize,
 ) -> Result<ModifiedFile, io::Error> {
     let bytes: Vec<u8> = fs::read(new_patch_root.join(&modification.file_path))?;

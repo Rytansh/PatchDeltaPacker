@@ -1,15 +1,15 @@
 use crate::build::patcher::patch_structs::{PatchEntry, PatchHistory, PatchPackage};
 use crate::build::tooling::hasher;
-use crate::constants::{PATCH_HISTORY_RELATIVE_PATH, PATCH_PACKAGES_PATH};
+use crate::constants::PATCH_HISTORY_RELATIVE_PATH;
 use std::path::Path;
 use std::{fs, io};
 
 pub fn update(
     patch: &PatchPackage,
     contents: &[u8],
-    root_directory: &Path,
+    patch_directory: &Path,
 ) -> Result<(), io::Error> {
-    let mut patch_history = match get_history(root_directory) {
+    let mut patch_history = match get_history(patch_directory) {
         Ok(patch_history) => patch_history,
         Err(err) if err.kind() == io::ErrorKind::NotFound => PatchHistory {
             latest_version: patch.new_ver.clone(),
@@ -46,32 +46,31 @@ pub fn update(
 
     let json = serde_json::to_string_pretty(&patch_history).map_err(io::Error::other)?;
     fs::write(
-        Path::new(PATCH_PACKAGES_PATH).join(Path::new(PATCH_HISTORY_RELATIVE_PATH)),
+        patch_directory.join(Path::new(PATCH_HISTORY_RELATIVE_PATH)),
         json,
     )?;
     Ok(())
 }
 
-pub fn get_history(root_directory: &Path) -> Result<PatchHistory, io::Error> {
-    let patch_history_path =
-        Path::new(PATCH_PACKAGES_PATH).join(Path::new(PATCH_HISTORY_RELATIVE_PATH));
+pub fn get_history(patch_directory: &Path) -> Result<PatchHistory, io::Error> {
+    let patch_history_path = patch_directory.join(Path::new(PATCH_HISTORY_RELATIVE_PATH));
     let history_text = fs::read_to_string(patch_history_path)?;
     let history = serde_json::from_str(&history_text).map_err(io::Error::other)?;
 
     Ok(history)
 }
 
-pub fn get_latest_version(root_directory: &Path) -> Result<String, io::Error> {
-    let history = get_history(root_directory)?;
+pub fn get_latest_version(patch_directory: &Path) -> Result<String, io::Error> {
+    let history = get_history(patch_directory)?;
     Ok(history.latest_version)
 }
 
 pub fn get_patch_entry(
-    root_directory: &Path,
+    patch_directory: &Path,
     old_ver: &str,
     new_ver: &str,
 ) -> Result<PatchEntry, io::Error> {
-    let mut history = get_history(root_directory)?;
+    let history = get_history(patch_directory)?;
     history
         .patches
         .iter()

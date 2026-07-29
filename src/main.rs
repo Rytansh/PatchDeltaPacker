@@ -1,62 +1,70 @@
-use std::path::Path;
+use crate::build::concurrency::worker_pool::WorkerPool;
+use crate::build::manifests::manifest_ser;
+use crate::build::patcher::patch_ser;
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::time::Instant;
+use tokio::io;
+
 mod build;
 mod client;
 mod constants;
 
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::patcher::patch_ser;
+#[derive(Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+
+    #[arg(long, default_value_t = 1)]
+    threads: usize,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Manifest {
+        #[arg(long)]
+        root: PathBuf,
+    },
+
+    Build {
+        #[arg(long)]
+        old: PathBuf,
+
+        #[arg(long)]
+        new: PathBuf,
+
+        #[arg(long)]
+        output: PathBuf,
+    },
+}
 
 #[tokio::main]
-async fn main() {
-    let worker_pool = WorkerPool::new(3);
+async fn main() -> io::Result<()> {
+    let cli = Cli::parse();
 
-    // let start = Instant::now();
-    //
-    // let manifest = manifest_ser::write_manifest(
-    //     Path::new(
-    //         r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.0",
-    //     ),
-    //     &worker_pool,
-    // )
-    // .await
-    // .unwrap();
-    //
-    // let elapsed = start.elapsed();
-    //
-    // println!("Manifest took {:.3?}", elapsed);
+    let worker_pool = WorkerPool::new(cli.threads);
 
-    let start = Instant::now();
+    match cli.command {
+        Commands::Manifest { root } => {
+            let start = Instant::now();
+            if let Err(err) = manifest_ser::generate_manifest(&root, &worker_pool).await {
+                eprintln!("Failed to generate manifest: {err}");
+                std::process::exit(1);
+            }
+            let elapsed = start.elapsed();
+            println!("Manifest generation took {elapsed:.3?}.");
+        }
 
-    let patch_package = patch_ser::generate_patch(
-        Path::new(
-            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.0",
-        ),
-        Path::new(
-            r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Version Data\V1.1.1",
-        ),
-        &worker_pool,
-    )
-    .await
-    .unwrap();
+        Commands::Build { old, new, output } => {
+            let start = Instant::now();
+            if let Err(err) = patch_ser::generate_patch(&old, &new, &output, &worker_pool).await {
+                eprintln!("Failed to generate patch: {err}");
+                std::process::exit(1);
+            }
+            let elapsed = start.elapsed();
+            println!("Patch generation took {elapsed:.3?}.");
+        }
+    }
 
-    let elapsed = start.elapsed();
-
-    println!("Patch package took {:.3?}", elapsed);
-
-    // let start2 = Instant::now();
-    //
-    // patch_installer::install_patch(
-    //     patch_package,
-    //     &worker_pool,
-    //     Path::new(
-    //         r"D:\Rytansh\Trichic Games\StateArcheus\PatchDeltaPacker\Testing\Installed Game\V1.1.0",
-    //     ),
-    // )
-    // .await
-    // .unwrap();
-    //
-    // let elapsed2 = start2.elapsed();
-    //
-    // println!("Patch installation took {:.3?}", elapsed2);
+    Ok(())
 }
