@@ -1,15 +1,10 @@
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::manifests::manifest_ser;
-use crate::build::patcher::patch_ser;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::time::Instant;
 use tokio::io;
 
-mod build;
-mod client;
-mod constants;
-
+use patch_packer::build::concurrency::worker_pool::WorkerPool;
+use patch_packer::build::{manifests, patcher};
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -47,7 +42,7 @@ async fn main() -> io::Result<()> {
     match cli.command {
         Commands::Manifest { root } => {
             let start = Instant::now();
-            if let Err(err) = manifest_ser::generate_manifest(&root, &worker_pool).await {
+            if let Err(err) = manifests::writer::generate_manifest(&root, &worker_pool).await {
                 eprintln!("Failed to generate manifest: {err}");
                 std::process::exit(1);
             }
@@ -57,7 +52,9 @@ async fn main() -> io::Result<()> {
 
         Commands::Build { old, new, output } => {
             let start = Instant::now();
-            if let Err(err) = patch_ser::generate_patch(&old, &new, &output, &worker_pool).await {
+            if let Err(err) =
+                patcher::writer::generate_patch(&old, &new, &output, &worker_pool).await
+            {
                 eprintln!("Failed to generate patch: {err}");
                 std::process::exit(1);
             }

@@ -1,4 +1,4 @@
-use crate::build::patcher::patch_structs::PatchEntry;
+use crate::build::patcher::structs::PatchEntry;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Packet {

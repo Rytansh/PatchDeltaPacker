@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::build::manifests::manifest_structs::ManifestFile;
+use crate::build::manifests::structs::ManifestFile;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct PatchPlan {

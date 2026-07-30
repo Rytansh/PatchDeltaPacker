@@ -1,6 +1,5 @@
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 pub fn scan_directory(root_directory_path: &Path) -> Result<Vec<PathBuf>, io::Error> {
     let mut all_paths = Vec::new();

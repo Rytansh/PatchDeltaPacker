@@ -1,9 +1,11 @@
-use crate::client::connection::connection_structs::Packet;
 use bincode::config;
-use std::io;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use tokio::{
+    io,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
+
+use crate::client::connection::structs::Packet;
 
 pub async fn receive_packet(stream: &mut TcpStream) -> io::Result<Packet> {
     let length = stream.read_u32().await?;

@@ -1,8 +1,9 @@
-use crate::build::patcher::patch_structs::{PatchEntry, PatchHistory, PatchPackage};
-use crate::build::tooling::hasher;
-use crate::constants::PATCH_HISTORY_RELATIVE_PATH;
 use std::path::Path;
 use std::{fs, io};
+
+use crate::build::patcher::structs::{PatchEntry, PatchHistory, PatchPackage};
+use crate::build::tooling;
+use crate::constants::PATCH_HISTORY_RELATIVE_PATH;
 
 pub fn update(
     patch: &PatchPackage,
@@ -18,8 +19,10 @@ pub fn update(
         Err(err) => return Err(err),
     };
 
+    let checksum = tooling::hasher::hash_sha256(contents);
+
     if !patch_history.patches.iter().any(|p| p.to == patch.new_ver) {
-        patch_history.latest_version = patch.new_ver.clone();
+        patch_history.latest_version.clone_from(&patch.new_ver);
     }
 
     match patch_history
@@ -30,7 +33,7 @@ pub fn update(
         Some(existing) => {
             existing.file = format!("{}_to_{}.pdp", &patch.old_ver, &patch.new_ver);
             existing.size = contents.len() as u64;
-            existing.checksum = hasher::hash_sha256(contents);
+            existing.checksum = checksum;
         }
 
         None => {
@@ -39,7 +42,7 @@ pub fn update(
                 to: patch.new_ver.clone(),
                 file: format!("{}_to_{}.pdp", &patch.old_ver, &patch.new_ver),
                 size: contents.len() as u64,
-                checksum: hasher::hash_sha256(contents),
+                checksum,
             });
         }
     }
@@ -52,10 +55,10 @@ pub fn update(
     Ok(())
 }
 
-pub fn get_history(patch_directory: &Path) -> Result<PatchHistory, io::Error> {
+fn get_history(patch_directory: &Path) -> Result<PatchHistory, io::Error> {
     let patch_history_path = patch_directory.join(Path::new(PATCH_HISTORY_RELATIVE_PATH));
-    let history_text = fs::read_to_string(patch_history_path)?;
-    let history = serde_json::from_str(&history_text).map_err(io::Error::other)?;
+    let history_text = fs::read(patch_history_path)?;
+    let history = serde_json::from_slice(&history_text).map_err(io::Error::other)?;
 
     Ok(history)
 }

@@ -1,15 +1,15 @@
 use clap::Parser;
-use patch_packer::build::patcher::patch_history;
-use patch_packer::client::connection::connection_structs::{
-    ErrorCode, Packet, PendingDownload, Session,
-};
-use patch_packer::client::connection::protocol::{receive_packet, send_packet};
-use std::io;
-use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
+use std::{io, io::SeekFrom};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+
+use patch_packer::build::patcher;
+use patch_packer::client::connection::{
+    protocol::{receive_packet, send_packet},
+    structs::{ErrorCode, Packet, PendingDownload, Session},
+};
 
 #[derive(Parser)]
 #[command(name = "patch_server", about = "Hosts patch files for clients.")]
@@ -93,7 +93,7 @@ async fn handle_version_request(
 ) -> io::Result<()> {
     println!("Client currently has version {current}");
 
-    let latest = patch_history::get_latest_version(patch_directory)?;
+    let latest = patcher::history::get_latest_version(patch_directory)?;
 
     send_packet(stream, &Packet::VersionResponse { latest }).await
 }
@@ -106,7 +106,7 @@ async fn handle_patch_request(
     to: String,
     resume_offset: u64,
 ) -> io::Result<()> {
-    let patch_entry = patch_history::get_patch_entry(patch_directory, &from, &to)?;
+    let patch_entry = patcher::history::get_patch_entry(patch_directory, &from, &to)?;
 
     if resume_offset > patch_entry.size {
         send_packet(

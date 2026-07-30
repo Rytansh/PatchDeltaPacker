@@ -1,20 +1,18 @@
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::config::config_reader;
-use crate::build::patcher::patch_structs::{AddedFile, DeletedFile, ModifiedFile, PatchPackage};
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::Path;
+
+use crate::build::concurrency::worker_pool::WorkerPool;
+use crate::build::config;
+use crate::build::patcher::structs::{AddedFile, DeletedFile, ModifiedFile, PatchPackage};
 
 pub async fn install_patch(
     patch: PatchPackage,
     worker_pool: &WorkerPool,
     game_directory: &Path,
 ) -> Result<(), io::Error> {
-    if config_reader::get_game_version(game_directory)? != patch.old_ver {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Version mismatch. Cannot download patch.",
-        ));
+    if config::reader::get_game_version(game_directory)? != patch.old_ver {
+        return Err(io::Error::other("Version mismatch. Cannot download patch."));
     }
 
     let chunk_size = patch.chunk_size;
@@ -53,7 +51,7 @@ pub async fn install_patch(
 
 pub fn delete_file(file: &DeletedFile, game_directory: &Path) -> Result<(), io::Error> {
     let path = game_directory.join(&file.file_path);
-    Ok(fs::remove_file(path)?)
+    fs::remove_file(path)
 }
 
 pub fn add_file(file: &AddedFile, game_directory: &Path) -> Result<(), io::Error> {
@@ -61,7 +59,7 @@ pub fn add_file(file: &AddedFile, game_directory: &Path) -> Result<(), io::Error
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    Ok(fs::write(path, &file.bytes_added)?)
+    fs::write(path, &file.bytes_added)
 }
 
 pub fn modify_file(
@@ -70,29 +68,30 @@ pub fn modify_file(
     chunk_size: usize,
 ) -> Result<(), io::Error> {
     let path = game_directory.join(&file.file_path);
-    let mut file_bytes = fs::read(&path)?;
 
-    if file_bytes.len() < file.target_file_size {
-        file_bytes.resize(file.target_file_size, 0);
+    let mut output = OpenOptions::new().read(true).write(true).open(&path)?;
+
+    if output.metadata()?.len() < file.target_file_size as u64 {
+        output.set_len(file.target_file_size as u64)?;
     }
 
     for modified_chunk in &file.modified_chunks {
-        let start = modified_chunk.index * chunk_size;
-        let end = start + modified_chunk.bytes.len();
+        let offset = (modified_chunk.index * chunk_size) as u64;
 
-        file_bytes[start..end].copy_from_slice(&modified_chunk.bytes);
+        output.seek(SeekFrom::Start(offset))?;
+        output.write_all(&modified_chunk.bytes)?;
     }
 
     for added_chunk in &file.added_chunks {
-        let start = added_chunk.index * chunk_size;
-        let end = start + added_chunk.bytes.len();
+        let offset = (added_chunk.index * chunk_size) as u64;
 
-        file_bytes[start..end].copy_from_slice(&added_chunk.bytes);
+        output.seek(SeekFrom::Start(offset))?;
+        output.write_all(&added_chunk.bytes)?;
     }
 
-    file_bytes.truncate(file.target_file_size);
+    output.set_len(file.target_file_size as u64)?;
 
-    fs::write(path, file_bytes)?;
+    output.flush()?;
 
     Ok(())
 }

@@ -1,35 +1,39 @@
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+use std::{fs, io};
+
 use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::manifests::manifest_reader;
-use crate::build::manifests::manifest_ser;
-use crate::build::patcher::patch_plan_gen::create_patch_plan;
-use crate::build::patcher::patch_structs::{
+use crate::build::patcher::structs::{
     AddedFile, DeletedFile, Modification, ModifiedChunk, ModifiedFile, PatchPackage, PatchPlan,
 };
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use crate::build::{manifests, patcher};
 
 pub async fn build_patch(
     old_patch_root: &Path,
     new_patch_root: &Path,
     worker_pool: &WorkerPool,
 ) -> Result<PatchPackage, io::Error> {
-    let old_manifest = match manifest_reader::get_manifest(old_patch_root) {
+    let start = Instant::now();
+    let old_manifest = match manifests::reader::get_manifest(old_patch_root) {
         Ok(manifest) => manifest,
-        Err(_) => manifest_ser::generate_manifest(old_patch_root, worker_pool).await?,
+        Err(_) => manifests::writer::generate_manifest(old_patch_root, worker_pool).await?,
     };
 
-    let new_manifest = match manifest_reader::get_manifest(new_patch_root) {
+    let new_manifest = match manifests::reader::get_manifest(new_patch_root) {
         Ok(manifest) => manifest,
-        Err(_) => manifest_ser::generate_manifest(new_patch_root, worker_pool).await?,
+        Err(_) => manifests::writer::generate_manifest(new_patch_root, worker_pool).await?,
     };
-    let plan = create_patch_plan(old_manifest, new_manifest)?;
+    let elapsed = start.elapsed();
+    println!("Manifest generation for patch took: {elapsed:?}.");
+    let plan = patcher::plan_builder::create_patch_plan(old_manifest, new_manifest)?;
     let package = create_patch_package(&plan, old_patch_root, new_patch_root, worker_pool).await?;
 
     Ok(package)
 }
 
-pub async fn create_patch_package(
+async fn create_patch_package(
     plan: &PatchPlan,
     old_patch_root: &Path,
     new_patch_root: &Path,
@@ -43,7 +47,7 @@ pub async fn create_patch_package(
         let file_path = file.file_path.clone();
         let patch_root = new_patch_root.to_path_buf();
 
-        let handle = worker_pool.execute(move || build_added_file(file_path, patch_root));
+        let handle = worker_pool.execute(move || build_added_file(file_path, &patch_root));
         add_handles.push(handle);
     }
 
@@ -56,7 +60,6 @@ pub async fn create_patch_package(
 
     //MODIFIED FILES
     for modification in &plan.modified_files {
-        let old = old_patch_root.to_path_buf();
         let patch_root = new_patch_root.to_path_buf();
         let chunk_size = plan.chunk_size;
         let modification = modification.clone();
@@ -87,13 +90,8 @@ pub async fn create_patch_package(
     })
 }
 
-fn build_added_file(file_path: PathBuf, new_patch_root: PathBuf) -> Result<AddedFile, io::Error> {
+fn build_added_file(file_path: PathBuf, new_patch_root: &Path) -> Result<AddedFile, io::Error> {
     let bytes: Vec<u8> = fs::read(new_patch_root.join(&file_path))?;
-    println!(
-        "[{:?}] ADDING {}",
-        std::thread::current().id(),
-        file_path.display()
-    );
     Ok(AddedFile {
         file_path,
         bytes_added: bytes,
@@ -103,51 +101,63 @@ fn build_added_file(file_path: PathBuf, new_patch_root: PathBuf) -> Result<Added
 const fn build_deleted_file(file_path: PathBuf) -> DeletedFile {
     DeletedFile { file_path }
 }
+
 fn build_modified_file(
     modification: &Modification,
     new_patch_root: &Path,
     chunk_size: usize,
 ) -> Result<ModifiedFile, io::Error> {
-    let bytes: Vec<u8> = fs::read(new_patch_root.join(&modification.file_path))?;
+    let mut file = File::open(new_patch_root.join(&modification.file_path))?;
+    let target_file_size = file.metadata()?.len() as usize;
 
-    println!(
-        "[{:?}] MODIFYING {}",
-        std::thread::current().id(),
-        modification.file_path.display()
-    );
+    let mut added_chunks = Vec::with_capacity(modification.added_chunks_indices.len());
+    let mut modified_chunks = Vec::with_capacity(modification.modified_chunks_indices.len());
 
-    let mut additions: Vec<ModifiedChunk> =
-        Vec::with_capacity(modification.added_chunks_indices.len());
-    let mut modifications: Vec<ModifiedChunk> =
-        Vec::with_capacity(modification.modified_chunks_indices.len());
+    let mut buffer = vec![0u8; chunk_size];
 
-    for added_chunk_index in &modification.added_chunks_indices {
-        let byte_index = added_chunk_index * chunk_size;
-        let end = usize::min(byte_index + chunk_size, bytes.len());
-        let added_bytes = &bytes[byte_index..end];
+    let mut current_chunk = 0;
 
-        additions.push(ModifiedChunk {
-            index: *added_chunk_index,
-            bytes: added_bytes.to_vec(),
-        });
-    }
+    let mut next_added = 0;
+    let mut next_modified = 0;
 
-    for modified_chunk_index in &modification.modified_chunks_indices {
-        let byte_index = modified_chunk_index * chunk_size;
-        let end = usize::min(byte_index + chunk_size, bytes.len());
-        let modified_bytes = &bytes[byte_index..end];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
 
-        modifications.push(ModifiedChunk {
-            index: *modified_chunk_index,
-            bytes: modified_bytes.to_vec(),
-        });
+        let slice = &buffer[..bytes_read];
+
+        if next_added < modification.added_chunks_indices.len()
+            && modification.added_chunks_indices[next_added] == current_chunk
+        {
+            added_chunks.push(ModifiedChunk {
+                index: current_chunk,
+                bytes: slice.to_vec(),
+            });
+
+            next_added += 1;
+        }
+
+        if next_modified < modification.modified_chunks_indices.len()
+            && modification.modified_chunks_indices[next_modified] == current_chunk
+        {
+            modified_chunks.push(ModifiedChunk {
+                index: current_chunk,
+                bytes: slice.to_vec(),
+            });
+
+            next_modified += 1;
+        }
+
+        current_chunk += 1;
     }
 
     Ok(ModifiedFile {
         file_path: modification.file_path.clone(),
-        target_file_size: bytes.len(),
-        added_chunks: additions,
+        target_file_size,
+        added_chunks,
         deleted_chunks: modification.deleted_chunks_indices.clone(),
-        modified_chunks: modifications,
+        modified_chunks,
     })
 }

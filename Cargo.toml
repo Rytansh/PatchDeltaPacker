@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
-bincode = { version = "3", features = ["serde"] }
+bincode = { version = "2.0.1", features = ["serde"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "fs", "io-util", "net"] }
 clap = { version = "4", features = ["derive"] }
 

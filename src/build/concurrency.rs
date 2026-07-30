@@ -1,2 +1,2 @@
-pub mod job;
+mod job;
 pub mod worker_pool;

@@ -1,29 +1,29 @@
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use patch_packer::build::concurrency::worker_pool::WorkerPool;
-use patch_packer::build::config::config_reader;
-use patch_packer::build::patcher::patch_ser;
-use patch_packer::build::tooling::hasher;
-use patch_packer::client::connection::connection_structs::Packet;
-use patch_packer::client::connection::protocol::{receive_packet, send_packet};
-use patch_packer::client::installer::patch_installer;
-use patch_packer::constants::{CHUNK_SIZE, TEMPORARY_PATCH_PATH};
 use sha2::Digest;
 use std::io::{self, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use tokio::fs;
-use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::{fs, fs::OpenOptions};
+
+use patch_packer::build::concurrency::worker_pool::WorkerPool;
+use patch_packer::build::{config, patcher, tooling};
+use patch_packer::client::connection::{
+    protocol::{receive_packet, send_packet},
+    structs::Packet,
+};
+use patch_packer::client::installation;
+use patch_packer::constants::{CHUNK_SIZE, TEMPORARY_PATCH_PATH};
 
 #[derive(Parser)]
 #[command(name = "launcher", about = "Downloads and installs game updates.")]
 struct Cli {
+    #[arg(long, default_value_t = 1)]
+    threads: usize,
+
     #[arg(long)]
     game: PathBuf,
-
-    #[arg(long, default_value_t = 3)]
-    threads: usize,
 }
 
 struct DownloadInfo {
@@ -53,22 +53,19 @@ async fn run_launcher(game_path: PathBuf, worker_pool: &WorkerPool) -> io::Resul
     let mut stream = connect_to_server().await?;
 
     let result: io::Result<()> = async {
-        let found = find_update(&mut stream, &game_path, resume_offset).await?;
-        if !found {
-            return Ok(());
+        if !find_update(&mut stream, &game_path, resume_offset).await? {
+            return Err(io::Error::from(io::ErrorKind::NotFound));
         }
 
         let Some(download_info) = get_patch_from_server(&mut stream).await? else {
-            return Ok(());
+            return Err(io::Error::from(io::ErrorKind::NotFound));
         };
 
         download_patch(&mut stream, &temp_patch_path, resume_offset, &download_info).await?;
 
         if !verify_patch(&temp_patch_path, &download_info).await? {
-            return Ok(());
+            return Err(io::Error::from(io::ErrorKind::InvalidData));
         }
-
-        install_patch(&temp_patch_path, &game_path, worker_pool).await?;
 
         Ok(())
     }
@@ -76,7 +73,14 @@ async fn run_launcher(game_path: PathBuf, worker_pool: &WorkerPool) -> io::Resul
 
     close_connection(&mut stream).await;
 
-    result
+    match result {
+        Ok(()) => {}
+        Err(err) => {
+            return Ok(());
+        }
+    }
+
+    install_patch(&temp_patch_path, &game_path, worker_pool).await
 }
 
 async fn connect_to_server() -> io::Result<TcpStream> {
@@ -106,7 +110,7 @@ async fn find_update(
     game_path: &Path,
     resume_offset: u64,
 ) -> io::Result<bool> {
-    let current_game_version = config_reader::get_game_version(game_path)?;
+    let current_game_version = config::reader::get_game_version(game_path)?;
 
     send_packet(
         stream,
@@ -244,7 +248,7 @@ async fn download_patch(
 
 async fn verify_patch(temp_patch_path: &Path, info: &DownloadInfo) -> io::Result<bool> {
     let mut verification_file = fs::File::open(temp_patch_path).await?;
-    let mut hasher = hasher::create_sha256();
+    let mut hasher = tooling::hasher::create_sha256();
     let mut buffer = vec![0; CHUNK_SIZE];
 
     println!("Verifying patch...");
@@ -274,8 +278,8 @@ async fn install_patch(
     worker_pool: &WorkerPool,
 ) -> io::Result<()> {
     println!("Installing patch...");
-    let patch = patch_ser::retrieve_patch(temp_patch_path).await?;
-    patch_installer::install_patch(patch, &worker_pool, game_path).await?;
+    let patch = patcher::writer::retrieve_patch(temp_patch_path).await?;
+    installation::installer::install_patch(patch, &worker_pool, game_path).await?;
     fs::remove_file(temp_patch_path).await?;
     println!("Patch installed!");
     Ok(())

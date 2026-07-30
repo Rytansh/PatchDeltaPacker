@@ -1,11 +1,9 @@
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-
-use crate::constants::CONFIG_RELATIVE_PATH;
-
 use serde;
 use serde_json;
+use std::path::{Path, PathBuf};
+use std::{fs, io};
+
+use crate::constants::CONFIG_RELATIVE_PATH;
 
 #[derive(serde::Deserialize)]
 pub struct GameConfig {

@@ -1,6 +1,7 @@
 pub const COMPRESSION_LEVEL: i32 = 3;
 pub const MANIFEST_VERSION: &str = "1.0.0";
-pub const CHUNK_SIZE: usize = 64 * 1024;
+pub const CHUNK_SIZE: usize = 1024 * 1024;
+pub const HASH_SEED: u64 = 1;
 
 pub const MANIFEST_RELATIVE_PATH: &str = "manifest.json";
 pub const CONFIG_RELATIVE_PATH: &str = "GameConfig.json";

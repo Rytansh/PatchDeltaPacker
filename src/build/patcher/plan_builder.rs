@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::io;
 
-use crate::build::manifests::manifest_structs::{Manifest, ManifestFile};
-use crate::build::patcher::patch_structs::{Modification, PatchPlan};
+use crate::build::manifests::structs::{Manifest, ManifestFile};
+use crate::build::patcher::structs::{Modification, PatchPlan};
 
 pub fn create_patch_plan(
     old_manifest: Manifest,
@@ -63,26 +63,27 @@ pub fn create_patch_plan(
 
 fn compare_modifications(old_file: &ManifestFile, new_file: &ManifestFile) -> Modification {
     let mut index = 0;
-    let mut modified_indices = Vec::with_capacity(new_file.chunk_data.len());
-    let mut deleted_indices = Vec::with_capacity(old_file.chunk_data.len());
-    let mut added_indices = Vec::new();
-    while index < new_file.chunk_data.len() {
-        if index > old_file.chunk_data.len() - 1 {
+
+    let mut modified_indices = Vec::with_capacity(new_file.chunk_hashes.len());
+    while index < new_file.chunk_hashes.len() {
+        if index > old_file.chunk_hashes.len() - 1 {
             break;
         }
-        if old_file.chunk_data[index].hash != new_file.chunk_data[index].hash {
+        if old_file.chunk_hashes[index] != new_file.chunk_hashes[index] {
             modified_indices.push(index);
         }
         index += 1;
     }
 
-    if old_file.chunk_data.len() > new_file.chunk_data.len() {
-        let num_deleted_chunks = old_file.chunk_data.len() - new_file.chunk_data.len();
+    let mut deleted_indices = Vec::with_capacity(old_file.chunk_hashes.len());
+    let mut added_indices = Vec::new();
+    if old_file.chunk_hashes.len() > new_file.chunk_hashes.len() {
+        let num_deleted_chunks = old_file.chunk_hashes.len() - new_file.chunk_hashes.len();
         for i in 0..num_deleted_chunks {
             deleted_indices.push(index + i);
         }
-    } else if new_file.chunk_data.len() > old_file.chunk_data.len() {
-        let num_added_chunks = new_file.chunk_data.len() - old_file.chunk_data.len();
+    } else if new_file.chunk_hashes.len() > old_file.chunk_hashes.len() {
+        let num_added_chunks = new_file.chunk_hashes.len() - old_file.chunk_hashes.len();
         for i in 0..num_added_chunks {
             added_indices.push(index + i);
         }

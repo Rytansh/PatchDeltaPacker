@@ -1,7 +1,8 @@
-use crate::build::concurrency::job::{Job, JobHandle};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use tokio::sync::oneshot;
+
+use crate::build::concurrency::job::{Job, JobHandle};
 
 pub struct WorkerPool {
     workers: Vec<Worker>,
@@ -27,8 +28,6 @@ impl Worker {
                     }
 
                     Err(_) => {
-                        // All senders have been dropped.
-                        // Time to shut down this worker.
                         break;
                     }
                 }
