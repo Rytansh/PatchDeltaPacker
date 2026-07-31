@@ -15,15 +15,15 @@ pub enum Packet {
     PatchRequest {
         from: String,
         to: String,
-        resume_offset: u64,
     },
     PatchResponse {
-        file: String,
-        version: String,
-        remaining_size: u64,
-        checksum: [u8; 32],
+        patches: Vec<PatchEntry>,
+        target: String,
     },
-    PatchDownload,
+    PatchDownload {
+        patch: PatchEntry,
+        resume_offset: u64,
+    },
     PatchComplete,
 
     Error {
@@ -41,13 +41,4 @@ pub enum ErrorCode {
     OffsetMismatch,
     DownloadInfoNotFound,
     FatalError,
-}
-
-pub struct Session {
-    pub download: Option<PendingDownload>,
-}
-
-pub struct PendingDownload {
-    pub patch_entry: PatchEntry,
-    pub resume_offset: u64,
 }

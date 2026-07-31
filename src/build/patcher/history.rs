@@ -68,9 +68,12 @@ pub fn get_latest_version(patch_directory: &Path) -> Result<String, io::Error> {
     Ok(history.latest_version)
 }
 
-pub fn get_patch_chain(patch_directory: &Path, current: &str) -> io::Result<Vec<PatchEntry>> {
+pub fn get_patch_chain(
+    patch_directory: &Path,
+    current: &str,
+    target: &str,
+) -> io::Result<Vec<PatchEntry>> {
     let history = get_history(patch_directory)?;
-    let latest = history.latest_version.clone();
 
     let mut lookup = HashMap::new();
 
@@ -87,7 +90,7 @@ pub fn get_patch_chain(patch_directory: &Path, current: &str) -> io::Result<Vec<
     let mut visited = HashSet::new();
     let mut chain = Vec::new();
 
-    while current != latest {
+    while current != target {
         if !visited.insert(current.clone()) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,

@@ -1,9 +1,11 @@
 use crate::build::concurrency::worker_pool::WorkerPool;
 use crate::build::config;
 use crate::build::patcher::structs::{AddedFile, DeletedFile, ModifiedFile, PatchPackage};
+use crate::client::installation::progress::UpdateProgress;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const PATCH_TEMP_EXTENSION: &str = "patch";
 const BACKUP_EXTENSION: &str = "bak";
@@ -18,12 +20,18 @@ pub async fn install_patch(
     patch: PatchPackage,
     worker_pool: &WorkerPool,
     game_directory: &Path,
+    progress: Arc<UpdateProgress>,
 ) -> Result<(), io::Error> {
     recover_interrupted_install(game_directory)?;
 
     if config::reader::get_game_version(game_directory)? != patch.old_ver {
         return Err(io::Error::other("Version mismatch. Cannot install patch."));
     }
+
+    let total_operations =
+        patch.modified_files.len() + patch.added_files.len() + patch.deleted_files.len();
+
+    progress.begin_install(total_operations);
 
     let chunk_size = patch.chunk_size;
 
@@ -33,8 +41,14 @@ pub async fn install_patch(
 
     for modified_file in patch.modified_files {
         let directory = game_directory.to_path_buf();
+
+        let progress = Arc::clone(&progress);
+
         let handle = worker_pool.execute(move || {
             let prepared = prepare_modified_file(&modified_file, &directory, chunk_size)?;
+
+            progress.complete_install_operation();
+
             Ok::<PreparedFile, io::Error>(prepared)
         });
 
@@ -43,9 +57,13 @@ pub async fn install_patch(
 
     for added_file in patch.added_files {
         let directory = game_directory.to_path_buf();
+        let progress = Arc::clone(&progress);
 
         let handle = worker_pool.execute(move || {
             let prepared = prepare_added_file(&added_file, &directory)?;
+
+            progress.complete_install_operation();
+
             Ok::<PreparedFile, io::Error>(prepared)
         });
 
@@ -68,9 +86,13 @@ pub async fn install_patch(
 
     for deleted_file in patch.deleted_files {
         let directory = game_directory.to_path_buf();
+        let progress = Arc::clone(&progress);
 
         let handle = worker_pool.execute(move || {
             delete_file(&deleted_file, &directory)?;
+
+            progress.complete_install_operation();
+
             Ok::<(), io::Error>(())
         });
 
