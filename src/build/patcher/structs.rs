@@ -63,7 +63,7 @@ pub struct PatchHistory {
     pub patches: Vec<PatchEntry>,
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PatchEntry {
     pub from: String,
     pub to: String,

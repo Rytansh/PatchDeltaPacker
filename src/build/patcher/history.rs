@@ -1,9 +1,9 @@
-use std::path::Path;
-use std::{fs, io};
-
 use crate::build::patcher::structs::{PatchEntry, PatchHistory, PatchPackage};
 use crate::build::tooling;
 use crate::constants::PATCH_HISTORY_RELATIVE_PATH;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::{fs, io};
 
 pub fn update(
     patch: &PatchPackage,
@@ -66,6 +66,50 @@ fn get_history(patch_directory: &Path) -> Result<PatchHistory, io::Error> {
 pub fn get_latest_version(patch_directory: &Path) -> Result<String, io::Error> {
     let history = get_history(patch_directory)?;
     Ok(history.latest_version)
+}
+
+pub fn get_patch_chain(patch_directory: &Path, current: &str) -> io::Result<Vec<PatchEntry>> {
+    let history = get_history(patch_directory)?;
+    let latest = history.latest_version.clone();
+
+    let mut lookup = HashMap::new();
+
+    for patch in history.patches {
+        if lookup.insert(patch.from.clone(), patch).is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Duplicate source version in patch history.",
+            ));
+        }
+    }
+
+    let mut current = current.to_string();
+    let mut visited = HashSet::new();
+    let mut chain = Vec::new();
+
+    while current != latest {
+        if !visited.insert(current.clone()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Cycle detected in patch history.",
+            ));
+        }
+
+        let patch = lookup
+            .get(&current)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("No patch exists from version {current}"),
+                )
+            })?
+            .clone();
+
+        current.clone_from(&patch.to);
+        chain.push(patch);
+    }
+
+    Ok(chain)
 }
 
 pub fn get_patch_entry(

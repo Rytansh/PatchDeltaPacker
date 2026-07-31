@@ -1,75 +1,111 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Seek, SeekFrom, Write};
-use std::path::Path;
-
 use crate::build::concurrency::worker_pool::WorkerPool;
 use crate::build::config;
 use crate::build::patcher::structs::{AddedFile, DeletedFile, ModifiedFile, PatchPackage};
+use std::fs::{self, OpenOptions};
+use std::io::{self, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+
+const PATCH_TEMP_EXTENSION: &str = "patch";
+const BACKUP_EXTENSION: &str = "bak";
+
+#[derive(Debug)]
+struct PreparedFile {
+    original: PathBuf,
+    temp: PathBuf,
+}
 
 pub async fn install_patch(
     patch: PatchPackage,
     worker_pool: &WorkerPool,
     game_directory: &Path,
 ) -> Result<(), io::Error> {
+    recover_interrupted_install(game_directory)?;
+
     if config::reader::get_game_version(game_directory)? != patch.old_ver {
-        return Err(io::Error::other("Version mismatch. Cannot download patch."));
+        return Err(io::Error::other("Version mismatch. Cannot install patch."));
     }
 
     let chunk_size = patch.chunk_size;
 
-    let mut mod_handles = Vec::new();
     let mut add_handles = Vec::new();
-    let mut del_handles = Vec::new();
+    let mut modify_handles = Vec::new();
+    let mut prepared_files = Vec::new();
+
     for modified_file in patch.modified_files {
         let directory = game_directory.to_path_buf();
-        let mod_handle =
-            worker_pool.execute(move || modify_file(&modified_file, &directory, chunk_size));
-        mod_handles.push(mod_handle);
+        let handle = worker_pool.execute(move || {
+            let prepared = prepare_modified_file(&modified_file, &directory, chunk_size)?;
+            Ok::<PreparedFile, io::Error>(prepared)
+        });
+
+        modify_handles.push(handle);
     }
-    for handle in mod_handles {
-        handle.wait().await?;
-    }
+
     for added_file in patch.added_files {
         let directory = game_directory.to_path_buf();
-        let add_handle = worker_pool.execute(move || add_file(&added_file, &directory));
-        add_handles.push(add_handle);
+
+        let handle = worker_pool.execute(move || {
+            let prepared = prepare_added_file(&added_file, &directory)?;
+            Ok::<PreparedFile, io::Error>(prepared)
+        });
+
+        add_handles.push(handle);
     }
+
+    for handle in modify_handles {
+        prepared_files.push(handle.wait().await?);
+    }
+
     for handle in add_handles {
-        handle.wait().await?;
+        prepared_files.push(handle.wait().await?);
     }
+
+    prepared_files.sort_by(|a, b| a.original.cmp(&b.original));
+
+    commit_prepared_files(&prepared_files)?;
+
+    let mut delete_handles = Vec::new();
+
     for deleted_file in patch.deleted_files {
         let directory = game_directory.to_path_buf();
-        let del_handle = worker_pool.execute(move || delete_file(&deleted_file, &directory));
-        del_handles.push(del_handle);
+
+        let handle = worker_pool.execute(move || {
+            delete_file(&deleted_file, &directory)?;
+            Ok::<(), io::Error>(())
+        });
+
+        delete_handles.push(handle);
     }
-    for handle in del_handles {
+
+    for handle in delete_handles {
         handle.wait().await?;
     }
+
+    cleanup_backups(&prepared_files)?;
 
     Ok(())
 }
 
 pub fn delete_file(file: &DeletedFile, game_directory: &Path) -> Result<(), io::Error> {
     let path = game_directory.join(&file.file_path);
-    fs::remove_file(path)
-}
-
-pub fn add_file(file: &AddedFile, game_directory: &Path) -> Result<(), io::Error> {
-    let path = game_directory.join(&file.file_path);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+    if path.exists() {
+        fs::remove_file(path)?;
+        return Ok(());
     }
-    fs::write(path, &file.bytes_added)
+    Ok(())
 }
 
-pub fn modify_file(
+fn prepare_modified_file(
     file: &ModifiedFile,
     game_directory: &Path,
     chunk_size: usize,
-) -> Result<(), io::Error> {
-    let path = game_directory.join(&file.file_path);
+) -> Result<PreparedFile, io::Error> {
+    let original = game_directory.join(&file.file_path);
+    let temp = temp_path(&original);
 
-    let mut output = OpenOptions::new().read(true).write(true).open(&path)?;
+    fs::copy(&original, &temp)?;
+
+    let mut output = OpenOptions::new().read(true).write(true).open(&temp)?;
 
     if output.metadata()?.len() < file.target_file_size as u64 {
         output.set_len(file.target_file_size as u64)?;
@@ -93,5 +129,151 @@ pub fn modify_file(
 
     output.flush()?;
 
+    Ok(PreparedFile { original, temp })
+}
+
+fn prepare_added_file(file: &AddedFile, game_directory: &Path) -> Result<PreparedFile, io::Error> {
+    let original = game_directory.join(&file.file_path);
+    let temp = temp_path(&original);
+
+    if let Some(parent) = temp.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    fs::write(&temp, &file.bytes_added)?;
+
+    Ok(PreparedFile { original, temp })
+}
+
+fn commit_prepared_files(prepared_files: &[PreparedFile]) -> Result<(), io::Error> {
+    let mut committed: Vec<&PreparedFile> = Vec::new();
+
+    for file in prepared_files {
+        let backup = backup_path(&file.original);
+
+        if file.original.exists()
+            && let Err(err) = fs::rename(&file.original, &backup)
+        {
+            rollback_committed_files(&committed)?;
+            return Err(err);
+        }
+
+        if let Err(err) = fs::rename(&file.temp, &file.original) {
+            recover_failed_swap(file)?;
+
+            rollback_committed_files(&committed)?;
+
+            return Err(err);
+        }
+
+        committed.push(file);
+    }
+
     Ok(())
+}
+
+fn cleanup_backups(prepared_files: &[PreparedFile]) -> Result<(), io::Error> {
+    for file in prepared_files {
+        let backup = backup_path(&file.original);
+
+        if backup.exists() {
+            fs::remove_file(backup)?;
+        }
+
+        if file.temp.exists() {
+            fs::remove_file(&file.temp)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn temp_path(path: &Path) -> PathBuf {
+    let file_name = path.file_name().unwrap().to_string_lossy();
+
+    path.with_file_name(format!("{file_name}.{PATCH_TEMP_EXTENSION}"))
+}
+
+fn backup_path(path: &Path) -> PathBuf {
+    let file_name = path.file_name().unwrap().to_string_lossy();
+
+    path.with_file_name(format!("{file_name}.{BACKUP_EXTENSION}"))
+}
+fn rollback_committed_files(committed: &[&PreparedFile]) -> Result<(), io::Error> {
+    for file in committed.iter().rev() {
+        let backup = backup_path(&file.original);
+
+        if file.original.exists() {
+            let _ = fs::remove_file(&file.original);
+        }
+
+        if backup.exists() {
+            fs::rename(&backup, &file.original)?;
+        }
+
+        if file.temp.exists() {
+            let _ = fs::remove_file(&file.temp);
+        }
+    }
+
+    Ok(())
+}
+
+fn recover_failed_swap(file: &PreparedFile) -> Result<(), io::Error> {
+    let backup = backup_path(&file.original);
+
+    if !file.original.exists() && backup.exists() {
+        fs::rename(backup, &file.original)?;
+    }
+
+    Ok(())
+}
+
+fn recover_interrupted_install(game_directory: &Path) -> Result<(), io::Error> {
+    fn recurse(dir: &Path) -> Result<(), io::Error> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+
+            let path = entry.path();
+
+            if path.is_dir() {
+                recurse(&path)?;
+                continue;
+            }
+
+            let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
+                continue;
+            };
+
+            if extension.ends_with(BACKUP_EXTENSION) {
+                let original = remove_suffix(&path, BACKUP_EXTENSION);
+
+                if original.exists() {
+                    fs::remove_file(&original)?;
+                }
+
+                fs::rename(&path, original)?;
+
+                continue;
+            }
+
+            if extension.ends_with(PATCH_TEMP_EXTENSION) {
+                fs::remove_file(path)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    recurse(game_directory)
+}
+
+fn remove_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let file_name = path.file_name().unwrap().to_string_lossy();
+
+    let stripped = file_name
+        .strip_suffix(&format!(".{suffix}"))
+        .expect("Expected suffix");
+
+    path.with_file_name(stripped)
 }

@@ -28,14 +28,13 @@ pub async fn build_patch(
     let elapsed = start.elapsed();
     println!("Manifest generation for patch took: {elapsed:?}.");
     let plan = patcher::plan_builder::create_patch_plan(old_manifest, new_manifest)?;
-    let package = create_patch_package(&plan, old_patch_root, new_patch_root, worker_pool).await?;
+    let package = create_patch_package(&plan, new_patch_root, worker_pool).await?;
 
     Ok(package)
 }
 
 async fn create_patch_package(
     plan: &PatchPlan,
-    old_patch_root: &Path,
     new_patch_root: &Path,
     worker_pool: &WorkerPool,
 ) -> Result<PatchPackage, io::Error> {
