@@ -1,20 +1,15 @@
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::config;
-use crate::build::patcher::structs::{AddedFile, DeletedFile, ModifiedFile, PatchPackage};
-use crate::client::installation::progress::UpdateProgress;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-const PATCH_TEMP_EXTENSION: &str = "patch";
-const BACKUP_EXTENSION: &str = "bak";
-
-#[derive(Debug)]
-struct PreparedFile {
-    original: PathBuf,
-    temp: PathBuf,
-}
+use crate::build::{
+    concurrency::worker_pool::WorkerPool,
+    config,
+    patcher::structs::{AddedFile, DeletedFile, ModifiedFile, PatchPackage},
+};
+use crate::client::installation::{progress::UpdateProgress, structs::PreparedFile};
+use crate::constants::{BACKUP_EXTENSION, TEMPORARY_PATCH_EXTENSION, TEMPORARY_PATCH_PATH};
 
 pub async fn install_patch(
     patch: PatchPackage,
@@ -213,7 +208,7 @@ fn cleanup_backups(prepared_files: &[PreparedFile]) -> Result<(), io::Error> {
 fn temp_path(path: &Path) -> PathBuf {
     let file_name = path.file_name().unwrap().to_string_lossy();
 
-    path.with_file_name(format!("{file_name}.{PATCH_TEMP_EXTENSION}"))
+    path.with_file_name(format!("{file_name}.{TEMPORARY_PATCH_EXTENSION}"))
 }
 
 fn backup_path(path: &Path) -> PathBuf {
@@ -279,7 +274,7 @@ fn recover_interrupted_install(game_directory: &Path) -> Result<(), io::Error> {
                 continue;
             }
 
-            if extension.ends_with(PATCH_TEMP_EXTENSION) {
+            if extension.ends_with(TEMPORARY_PATCH_PATH) {
                 fs::remove_file(path)?;
             }
         }

@@ -8,7 +8,7 @@ pub struct JobHandle<R> {
 }
 
 impl<R> JobHandle<R> {
-    pub(crate) fn new(receiver: oneshot::Receiver<R>) -> Self {
+    pub(crate) const fn new(receiver: oneshot::Receiver<R>) -> Self {
         Self { receiver }
     }
 

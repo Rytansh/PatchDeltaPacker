@@ -1,10 +1,12 @@
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::manifests::structs::{Manifest, ManifestFile};
-use crate::build::{chunking, config, tooling};
+use crate::build::{
+    concurrency::worker_pool::WorkerPool,
+    manifests::structs::{Manifest, ManifestFile},
+    {chunking, config, tooling},
+};
+
 use crate::constants::{CHUNK_SIZE, MANIFEST_RELATIVE_PATH, MANIFEST_VERSION};
 
 pub async fn build_manifest(

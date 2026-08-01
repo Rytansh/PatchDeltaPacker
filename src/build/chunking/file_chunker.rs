@@ -2,8 +2,10 @@ use std::fs::File;
 use std::path::Path;
 use std::{io, io::Read};
 
-use crate::build::chunking::structs::{Chunk, ChunkedFile};
-use crate::build::tooling;
+use crate::build::{
+    chunking::structs::{Chunk, ChunkedFile},
+    tooling,
+};
 use crate::constants::HASH_SEED;
 
 pub fn chunk_file(file_path: &Path, chunk_size: usize) -> Result<ChunkedFile, io::Error> {

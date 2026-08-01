@@ -80,7 +80,7 @@ impl UpdateProgress {
     }
 
     pub fn finish(&self) {
-        self.progress.finish_with_message("Update complete!");
+        self.progress.finish_with_message("Complete!");
     }
 
     fn set_patch_progress(&self, patch_fraction: f64) {

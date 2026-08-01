@@ -1,9 +1,12 @@
-use crate::build::patcher::structs::{PatchEntry, PatchHistory, PatchPackage};
-use crate::build::tooling;
-use crate::constants::PATCH_HISTORY_RELATIVE_PATH;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::{fs, io};
+
+use crate::build::{
+    patcher::structs::{PatchEntry, PatchHistory, PatchPackage},
+    tooling,
+};
+use crate::constants::PATCH_HISTORY_RELATIVE_PATH;
 
 pub fn update(
     patch: &PatchPackage,

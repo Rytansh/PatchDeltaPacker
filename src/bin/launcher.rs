@@ -3,19 +3,24 @@ use sha2::Digest;
 use std::io::{self, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
+use tokio::fs::{self, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::{fs, fs::OpenOptions};
 
-use patch_packer::build::concurrency::worker_pool::WorkerPool;
-use patch_packer::build::patcher::structs::PatchEntry;
-use patch_packer::build::{config, patcher, tooling};
-use patch_packer::client::connection::{
-    protocol::{receive_packet, send_packet},
-    structs::Packet,
+use patch_packer::build::{
+    concurrency::worker_pool::WorkerPool,
+    patcher::{self, structs::PatchEntry},
+    {config, tooling},
 };
-use patch_packer::client::installation;
-use patch_packer::client::installation::progress::UpdateProgress;
+use patch_packer::client::{
+    connection::{
+        protocol::{receive_packet, send_packet},
+        structs::Packet,
+    },
+    installation::{self, progress::UpdateProgress},
+};
+
 use patch_packer::constants::{CHUNK_SIZE, TEMPORARY_PATCH_PATH};
 
 #[derive(Parser)]
@@ -37,7 +42,6 @@ async fn main() -> io::Result<()> {
 }
 
 async fn run_launcher(game_path: PathBuf, worker_pool: &WorkerPool) -> io::Result<()> {
-    //compile metadata here like resume offset etc
     let temp_patch_path = game_path.join(TEMPORARY_PATCH_PATH);
     if let Some(parent) = temp_patch_path.parent() {
         fs::create_dir_all(parent).await?;
@@ -54,10 +58,13 @@ async fn run_launcher(game_path: PathBuf, worker_pool: &WorkerPool) -> io::Resul
             return Ok(());
         }
 
-        let Some(patches) = get_patches_from_server(&mut stream, initial_resume_offset).await?
+        let Some(patches) =
+            get_patches_from_server(&mut stream, &temp_patch_path, initial_resume_offset).await?
         else {
-            return Err(io::Error::from(io::ErrorKind::NotFound));
+            return Ok(());
         };
+
+        let start = Instant::now();
 
         let progress = Arc::new(UpdateProgress::new(patches.len()));
 
@@ -96,6 +103,7 @@ async fn run_launcher(game_path: PathBuf, worker_pool: &WorkerPool) -> io::Resul
         progress.finish();
 
         println!("Patch installed!");
+        println!("Installed in {:.3?}.", start.elapsed());
         Ok(())
     }
     .await;
@@ -162,10 +170,17 @@ async fn find_update(stream: &mut TcpStream, game_path: &Path) -> io::Result<boo
 
 async fn get_patches_from_server(
     stream: &mut TcpStream,
+    temp_patch_path: &Path,
     resume_offset: u64,
 ) -> Result<Option<Vec<PatchEntry>>, io::Error> {
     if let Packet::PatchResponse { patches, target } = receive_packet(stream).await? {
         let total_size: u64 = patches.iter().map(|patch| patch.size).sum();
+        let mut resume_offset = resume_offset;
+        if resume_offset > total_size {
+            println!("The patch may have been corrupted. Deleting patch...");
+            fs::remove_file(&temp_patch_path).await?;
+            resume_offset = 0;
+        }
 
         let remaining_size = total_size - resume_offset;
         if remaining_size == 0 {
@@ -243,12 +258,19 @@ async fn download_patch(
     let mut buffer = vec![0; CHUNK_SIZE];
 
     while remaining > 0 {
-        let bytes_read = stream.read(&mut buffer).await?;
+        let chunk = remaining.min(buffer.len() as u64) as usize;
+
+        let bytes_read = stream.read(&mut buffer[..chunk]).await?;
+
         if bytes_read == 0 {
-            println!("EOF");
-            break;
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Connection closed before patch download completed.",
+            ));
         }
+
         temp_patch_file.write_all(&buffer[..bytes_read]).await?;
+
         remaining -= bytes_read as u64;
 
         let downloaded = patch.size - remaining;

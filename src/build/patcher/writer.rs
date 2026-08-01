@@ -2,9 +2,11 @@ use bincode::config;
 use std::path::Path;
 use tokio::{fs, io};
 
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::patcher::structs::PatchPackage;
-use crate::build::{patcher, tooling};
+use crate::build::{
+    concurrency::worker_pool::WorkerPool,
+    patcher::{self, structs::PatchPackage},
+    tooling,
+};
 
 pub async fn generate_patch(
     old_patch_root: &Path,

@@ -1,12 +1,11 @@
 use clap::Parser;
+use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::{io, io::SeekFrom};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use patch_packer::build::patcher;
-use patch_packer::build::patcher::structs::PatchEntry;
+use patch_packer::build::patcher::{self, structs::PatchEntry};
 use patch_packer::client::connection::{
     protocol::{receive_packet, send_packet},
     structs::Packet,

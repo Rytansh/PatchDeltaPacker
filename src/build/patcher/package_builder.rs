@@ -4,11 +4,17 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, io};
 
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::patcher::structs::{
-    AddedFile, DeletedFile, Modification, ModifiedChunk, ModifiedFile, PatchPackage, PatchPlan,
+use crate::build::{
+    concurrency::worker_pool::WorkerPool,
+    manifests,
+    patcher::{
+        self,
+        structs::{
+            AddedFile, DeletedFile, Modification, ModifiedChunk, ModifiedFile, PatchPackage,
+            PatchPlan,
+        },
+    },
 };
-use crate::build::{manifests, patcher};
 
 pub async fn build_patch(
     old_patch_root: &Path,

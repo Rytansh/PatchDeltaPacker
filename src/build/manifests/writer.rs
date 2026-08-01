@@ -2,8 +2,10 @@ use serde_json;
 use std::path::Path;
 use std::{fs, io};
 
-use crate::build::concurrency::worker_pool::WorkerPool;
-use crate::build::{manifests, manifests::structs::Manifest};
+use crate::build::{
+    concurrency::worker_pool::WorkerPool,
+    manifests::{self, structs::Manifest},
+};
 use crate::constants::MANIFEST_RELATIVE_PATH;
 
 pub async fn generate_manifest(

@@ -1,9 +1,6 @@
 use bincode::config;
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::{
-    io,
-    io::{AsyncReadExt, AsyncWriteExt},
-};
 
 use crate::client::connection::structs::Packet;
 

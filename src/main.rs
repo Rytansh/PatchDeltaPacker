@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use tokio::io;
 
-use patch_packer::build::concurrency::worker_pool::WorkerPool;
-use patch_packer::build::{manifests, patcher};
+use patch_packer::build::{concurrency::worker_pool::WorkerPool, manifests, patcher};
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
